@@ -54,6 +54,49 @@ Check：检查做没做对（核验权）
 `baseline` 里会记录 `confirmedBy` 和 `confirmedAt`：
 谁确认的、什么时候确认的，必须能追溯。Pro 自己的输出永远不会成为 `confirmedBy`。
 
+## 2.2 确定性意图门（先于 Pro）
+
+Pro 不是唯一的分类器。每轮先跑一层**确定性意图门**（`src/tiger/intent-gate.js`）：
+
+```text
+否定执行（先别/不要/只告诉我） → QUESTION / DIAGNOSE
+显式执行（帮我/给我/做/改/存） → EXECUTE
+落盘动词 + 文件类名词        → EXECUTE / artifact-save
+诊断词                       → DIAGNOSE
+求方案                       → PLAN
+疑问句                       → QUESTION
+兜底                         → EXECUTE（但 default-execute 不等于交付授权）
+```
+
+最重要的是 `artifact-save` 这条：
+
+```text
+把这份诊断报告存成 Word 文件
+  含「诊断」二字，但不是只读调查，是明确的交付物指令
+  → mode=EXECUTE, reason=artifact-save
+```
+
+如果只靠 Pro 的 `action` 字段，这类句子很容易被分到 `answer` 或 `DIAGNOSE`，
+然后“文件永远写不出来”的死锁就复发。现在 Pro 的 prompt 会收到
+`mode/reason`，并且这个判断也写进 `pending.intent` 和 `baseline.intent`，可以追溯。
+
+交付授权是另一条独立判据：`default-execute` 表示“什么都没匹配到”，
+**不**自动获得“凭空新建文件”的授权；只有 `explicit-execute` / `artifact-save` /
+明确点头 / “动词+量词” / “动词+一下” 才放行。
+
+## 2.3 验收清单：没证据的“通过”不算通过
+
+`src/tiger/acceptance.js` 移植了上游 `normalizeItemResult` 的规则：
+
+- `needsEvidence: true` 的项，`pass: true` 但没给 `evidence` → `unknown`；
+- 空清单 → `fail`（什么都没核验，不能算通过）；
+- 任意 `fail` → 整单 `fail`；
+- 任意 `unknown` → 整单 `unknown`，不可交付；
+- 全部 `pass` / `skip` → 整单 `pass`。
+
+引擎可以通过 `acceptance` 选项传入清单；不是 `pass` 就直接
+`blocked / acceptance_not_passed`，不把“模型说通过”当成“验收通过”。
+
 ## 3. 状态机
 
 每个会话一份状态：

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runTigerTurn } from '../src/tiger/engine.js';
 import { freezePending } from '../src/tiger/baseline.js';
+import { normalizeItemResult, evaluateAcceptance } from '../src/tiger/acceptance.js';
 
 function stateDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'tiger-test-'));
@@ -285,6 +286,66 @@ test('a baseline cannot be frozen without a human approver', () => {
   assert.throws(() => freezePending(state, { sessionId: 's' }, null, ''), /human approver/);
   const baseline = freezePending(state, { sessionId: 's' }, null, '018');
   assert.equal(baseline.confirmedBy, '018');
+});
+
+test('deterministic intent gate is recorded on proposal and baseline', async () => {
+  const dir = stateDir();
+  const model = async ({ role }) => (role === 'pro' ? proJson('propose') : checkJson('ok'));
+  const proposal = await runTigerTurn({
+    messages: [{ role: 'user', content: '把这份诊断报告存成 Word 文件' }],
+    sessionId: 'intent',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  assert.equal(proposal.kind, 'proposal');
+  assert.equal(proposal.intent.reason, 'artifact-save');
+  assert.equal(proposal.pending.intent.mode, 'EXECUTE');
+  const confirmed = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'intent',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => 'done',
+  });
+  assert.equal(confirmed.baseline.intent.reason, 'artifact-save');
+  assert.equal(confirmed.baseline.deliveryAuthorized.ok, true);
+});
+
+test('acceptance: pass without evidence degrades to unknown', () => {
+  const r = normalizeItemResult({ id: 'G1', needsEvidence: true }, { pass: true });
+  assert.equal(r.result, 'unknown');
+  assert.match(r.note, /没给证据/);
+  assert.equal(normalizeItemResult({ id: 'G1', needsEvidence: true }, { pass: true, evidence: 'file exists' }).result, 'pass');
+  assert.equal(normalizeItemResult({ id: 'G2', needsEvidence: true }, { applies: false }).result, 'skip');
+});
+
+test('acceptance: empty checklist fails closed', () => {
+  assert.equal(evaluateAcceptance([]).verdict, 'fail');
+});
+
+test('engine blocks when an acceptance item has no evidence', async () => {
+  const dir = stateDir();
+  const model = async ({ role }) => (role === 'pro' ? proJson('propose') : checkJson('ok'));
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '写一个工具' }],
+    sessionId: 'accept',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const r = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'accept',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => 'done',
+    acceptance: [{ id: 'G1', needsEvidence: true, result: { pass: true } }],
+  });
+  assert.equal(r.kind, 'blocked');
+  assert.equal(r.reason, 'acceptance_not_passed');
 });
 
 test('a question is answered directly and does not create a pending task', async () => {

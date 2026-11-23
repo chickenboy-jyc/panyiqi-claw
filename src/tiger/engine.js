@@ -13,6 +13,8 @@ import {
   buildDoPrompt,
   buildProPrompt,
 } from './prompts.js';
+import { evaluateAcceptance } from './acceptance.js';
+import { classifyIntent, isDeliveryAuthorized } from './intent-gate.js';
 import {
   clearState,
   defaultStateDir,
@@ -140,6 +142,8 @@ function decide(check, machine) {
  * @param {(args:{role:string,system:string,user:string})=>Promise<string>} opts.model
  * @param {(args:{baseline:object,request:string,prompt:string})=>Promise<string|{text:string,artifacts?:any[]}>} opts.runDo
  * @param {(args:{baseline:object,output:string,artifacts:any[]})=>Promise<{ok:boolean,summary?:string,failures?:string[]}>} [opts.machineGate]
+ * @param {Array<{id?:string,needsEvidence?:boolean,result?:any}>} [opts.acceptance]
+ *        deterministic checklist; `needsEvidence:true` + pass without evidence becomes unknown
  * @param {string} [opts.externalText]
  * @param {boolean} [opts.reset]
  */
@@ -156,6 +160,10 @@ export async function runTigerTurn(opts) {
   if (!userText) {
     return { kind: 'error', error: 'empty user message', state: loadState(stateDir, payload) };
   }
+  // Deterministic, before Pro. Pro still writes the summary, but it no longer
+  // owns the only classification of "is this a question or a task?".
+  const intent = classifyIntent(userText);
+  const delivery = isDeliveryAuthorized(userText);
 
   let state = loadState(stateDir, payload);
   const externalText = o.externalText || '';
@@ -182,7 +190,7 @@ export async function runTigerTurn(opts) {
   const proRaw = await o.model({
     role: 'pro',
     system: proSystem(name),
-    user: buildProPrompt(userText, recentConversation(o.messages), state, externalText),
+    user: buildProPrompt(userText, recentConversation(o.messages), state, externalText, intent),
   });
   const pro = parseJsonLoose(proRaw);
   if (!pro || (pro.action !== 'answer' && pro.action !== 'propose')) {
@@ -193,6 +201,7 @@ export async function runTigerTurn(opts) {
     return {
       kind: 'answer',
       text: String(pro.answer || '').trim() || '（Pro returned an empty answer）',
+      intent,
       state,
     };
   }
@@ -202,9 +211,18 @@ export async function runTigerTurn(opts) {
     hard: pro.hard && typeof pro.hard === 'object' ? pro.hard : {},
     soft: asArray(pro.soft),
     request: userText,
+    intent,
+    deliveryAuthorized: delivery,
   };
   saveState(stateDir, payload, state);
-  return { kind: 'proposal', summary: state.pending.summary, pending: state.pending, state };
+  return {
+    kind: 'proposal',
+    summary: state.pending.summary,
+    pending: state.pending,
+    intent,
+    delivery,
+    state,
+  };
 }
 
 async function executeBaseline({ o, state, stateDir, payload, baseline, name }) {
@@ -277,6 +295,40 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
     }
   }
 
+  let acceptance = null;
+  if (o.acceptance != null) {
+    if (!Array.isArray(o.acceptance)) {
+      return {
+        kind: 'blocked',
+        status: 'blocked',
+        reason: 'acceptance_invalid',
+        issues: ['acceptance must be an array'],
+        baseline,
+        doText,
+        artifacts,
+        machine,
+        state,
+      };
+    }
+    acceptance = evaluateAcceptance(o.acceptance);
+    if (acceptance.verdict !== 'pass') {
+      return {
+        kind: 'blocked',
+        status: 'blocked',
+        reason: 'acceptance_not_passed',
+        issues: acceptance.verdict === 'fail' && !acceptance.failed.length
+          ? [acceptance.reason || 'acceptance failed']
+          : acceptance.failed.concat(acceptance.unknown).map((r) => `${r.id}: ${r.note || r.result}`),
+        baseline,
+        doText,
+        artifacts,
+        machine,
+        acceptance,
+        state,
+      };
+    }
+  }
+
   const checkRaw = await o.model({
     role: 'check',
     system: checkSystem(name),
@@ -294,11 +346,12 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
       doText,
       artifacts,
       machine,
+      acceptance,
       state,
     };
   }
 
   const decision = decide(check, machine);
   saveState(stateDir, payload, state);
-  return Object.assign({ baseline, doText, artifacts, machine, check, state }, decision);
+  return Object.assign({ baseline, doText, artifacts, machine, acceptance, check, state }, decision);
 }

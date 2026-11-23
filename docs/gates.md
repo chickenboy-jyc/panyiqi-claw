@@ -50,6 +50,8 @@ process.exit(failed ? 1 : 0);
 ```text
 node src/gates/selftest.mjs
 node src/gates/scan-orphans.mjs
+node examples/ai-cs-paraphrase/gate.mjs
+node examples/tenant-isolation/gate.mjs
 ```
 
 运行器逐条执行，最后给一份汇总：

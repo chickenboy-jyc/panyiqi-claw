@@ -1,9 +1,10 @@
 # 潘一琪 CLAW · Agent Kernel
 
-这是从 **潘一琪 CLAW** 里抽出来的 agent 内核，开源两件事：
+这是从 **潘一琪 CLAW** 里抽出来的 agent 内核，开源三层：
 
 1. **虎式交错三负重轮**：Pro / Flash-Do / Flash-Check 三个轮子怎么分工、怎么冻结基准、怎么阻断漂移；
-2. **门禁系统**：单元门禁怎么串成链，为什么用 `0 / 1 / 99` 三种退出码，怎么做反控和棘轮。
+2. **确定性意图门 + 验收清单**：不靠 Pro 一个字段决定“这是问答还是任务”，也不让“声明通过但没证据”算通过；
+3. **门禁系统**：单元门禁怎么串成链，为什么用 `0 / 1 / 99` 三种退出码，怎么做反控和棘轮。
 
 代码是**可独立运行的参考实现**，不依赖原产品的 Electron / DSH / 数据库，也不含任何业务数据、API Key、服务器地址。
 
@@ -131,10 +132,12 @@ npm run gates
 
 ```text
 src/tiger/
-  prompts.js    Pro / Do / Check 三套系统提示词与上下文拼装
-  baseline.js   pending → frozen baseline 的状态机（按会话落盘）
-  engine.js     runTigerTurn：确认、冻结、执行、机器门禁、Check、三态裁决
-  demo.js       离线 demo（mock 模型 + mock Do）
+  prompts.js      Pro / Do / Check 三套系统提示词与上下文拼装
+  baseline.js     pending → frozen baseline 的状态机（按会话落盘 + history）
+  engine.js       runTigerTurn：确认、冻结、执行、机器门禁、Check、三态裁决
+  intent-gate.js  确定性意图门（artifact-save / 问答 / 诊断 / 方案）
+  acceptance.js   验收清单归一化（无证据的通过 → unknown）
+  demo.js         离线 demo（mock 模型 + mock Do）
 
 src/gates/
   watchdog.mjs       退出码 99：没打汇总行就不算跑完
@@ -194,7 +197,8 @@ const result = await runTigerTurn({
 
 [agent-intent-gate](https://github.com/chickenboy-jyc/agent-intent-gate) 抽的是“意图门 + 交付门”；
 这个仓库抽的是**三负重轮的编排**和**门禁链的运行契约**。
-两者可以独立使用，也可以拼在一起：意图门决定“这轮要不要动手”，三负重轮决定“动手时怎么不跑偏”。
+两者是**兄弟，不是父子**：都来自 douya 血缘，但一个从 `intentGate.js` 抽，一个从私有潘一琪那一代的三负重轮抽。
+可以独立使用，也可以拼在一起：意图门决定“这轮要不要动手”，三负重轮决定“动手时怎么不跑偏”。
 
 ## 状态
 

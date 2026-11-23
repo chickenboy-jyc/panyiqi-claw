@@ -86,6 +86,8 @@ export function freezePending(state, payload, versionId, confirmedBy) {
     hard: pending.hard && typeof pending.hard === 'object' ? pending.hard : {},
     soft: Array.isArray(pending.soft) ? pending.soft : [],
     request: String(pending.request || ''),
+    intent: pending.intent || null,
+    deliveryAuthorized: pending.deliveryAuthorized || null,
     confirmedBy: approver,
     confirmedAt: new Date().toISOString(),
     frozenAt: new Date().toISOString(),
