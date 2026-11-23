@@ -45,6 +45,20 @@ Do 想偷偷加功能，Check 能对照 `hard.forbidden` 抓出来；Check 想�
 详细设计见 [docs/tiger.md](docs/tiger.md)；
 这份代码从哪些文件抽出来、为什么不是整仓开源，见 [docs/origin.md](docs/origin.md)。
 
+## 案例：同样 DeepSeek V4 Flash，差距在哪
+
+详见 [docs/cases.md](docs/cases.md)。两个可复现的点：
+
+- **AI 客服换说法就掉知识库**：问题不在模型，在召回层只做字面匹配。
+  本仓库带一个可跑实验：`node examples/ai-cs-paraphrase/gate.mjs`。
+  同一批 12 条问法、同一份知识库、不调用模型：naive 检索命中 8/12，归一化检索命中 12/12。
+- **漏洞定位**：先列攻击面、构造两个租户的最小请求、做差分，拿到机器证据再修；
+  修完把请求写进门禁链，去掉校验就必须变红。
+  可跑实验：`node examples/tenant-isolation/gate.mjs`。
+
+也要把边界写清楚：**通用基建（多租户、可观测性、部署、生态、企业管控）WorkBuddy 更强**。
+这个仓库强的是“已知问题、需要确定性修复、必须防回归”的最后一公里，不是整体碾压。
+
 ## 为什么门禁要单独做
 
 门禁不是“多写几个 assert”。它要解决三个具体问题：

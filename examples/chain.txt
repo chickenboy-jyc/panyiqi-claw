@@ -2,3 +2,5 @@
 # The chain runner treats exit 99 as "incomplete reading", not "pass".
 node src/gates/selftest.mjs
 node src/gates/scan-orphans.mjs
+node examples/ai-cs-paraphrase/gate.mjs
+node examples/tenant-isolation/gate.mjs
