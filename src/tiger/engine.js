@@ -247,6 +247,7 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
   } catch (e) {
     return {
       kind: 'blocked',
+      status: 'blocked',
       reason: 'do_failed',
       issues: [String((e && e.message) || e)],
       baseline,
@@ -285,6 +286,7 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
   if (!check) {
     return {
       kind: 'blocked',
+      status: 'blocked',
       reason: 'check_invalid_json',
       issues: ['Check returned invalid JSON'],
       raw: String(checkRaw || ''),
