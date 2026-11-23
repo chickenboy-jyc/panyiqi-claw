@@ -53,9 +53,18 @@ export function makeVersionId(state, payload) {
   return `TIGER-${key}-v${n + 1}-${Date.now().toString(36).toUpperCase()}`;
 }
 
-export function freezePending(state, payload, versionId) {
+/**
+ * Freeze a pending proposal into a baseline.
+ *
+ * `confirmedBy` is deliberately a required concept, not a detail: the Pro wheel
+ * may advise, but it must never be the thing that turns its own proposal into
+ * an executable baseline. Only a human confirmation reaches this function.
+ */
+export function freezePending(state, payload, versionId, confirmedBy) {
   const pending = state && state.pending;
   if (!pending) throw new Error('no pending proposal to freeze');
+  const approver = String(confirmedBy || '').trim();
+  if (!approver) throw new Error('baseline requires a human approver');
   state.version = (Number(state.version) || 0) + 1;
   state.baseline = {
     versionId: versionId || makeVersionId(state, payload),
@@ -63,6 +72,8 @@ export function freezePending(state, payload, versionId) {
     hard: pending.hard && typeof pending.hard === 'object' ? pending.hard : {},
     soft: Array.isArray(pending.soft) ? pending.soft : [],
     request: String(pending.request || ''),
+    confirmedBy: approver,
+    confirmedAt: new Date().toISOString(),
     frozenAt: new Date().toISOString(),
   };
   state.pending = null;

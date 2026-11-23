@@ -92,6 +92,7 @@ function decide(check, machine) {
  * @param {Object} opts
  * @param {Array<{role:string,content:string}>} opts.messages
  * @param {string} [opts.sessionId]
+ * @param {string} [opts.userId]       recorded as the human approver on freeze
  * @param {string} [opts.stateDir]
  * @param {string} [opts.assistantName]
  * @param {(args:{role:string,system:string,user:string})=>Promise<string>} opts.model
@@ -120,7 +121,9 @@ export async function runTigerTurn(opts) {
   // A short confirmation with a pending proposal freezes the baseline and runs.
   // Do this before calling Pro: otherwise Pro may re-propose on "可以".
   if (state.pending && CONFIRM_RE.test(userText)) {
-    const baseline = freezePending(state, payload);
+    // Only an explicit human confirmation can freeze. Pro never freezes its
+    // own proposal; Do never starts from a pending item.
+    const baseline = freezePending(state, payload, undefined, o.userId || 'user');
     saveState(stateDir, payload, state);
     return executeBaseline({ o, state, stateDir, payload, baseline, name });
   }

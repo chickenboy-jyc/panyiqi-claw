@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runTigerTurn } from '../src/tiger/engine.js';
+import { freezePending } from '../src/tiger/baseline.js';
 
 function stateDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'tiger-test-'));
@@ -57,6 +58,7 @@ test('confirmation freezes the baseline and runs Do + Check', async () => {
     messages: [{ role: 'user', content: '可以' }],
     sessionId: 's2',
     stateDir: dir,
+    userId: '018',
     model,
     runDo: async ({ baseline }) => {
       assert.ok(baseline.versionId.startsWith('TIGER-'));
@@ -66,6 +68,7 @@ test('confirmation freezes the baseline and runs Do + Check', async () => {
   assert.equal(r.kind, 'delivered');
   assert.equal(r.status, 'delivered');
   assert.ok(r.baseline.versionId);
+  assert.equal(r.baseline.confirmedBy, '018');
   assert.deepEqual(r.minor, ['变量名不同']);
 });
 
@@ -110,6 +113,13 @@ test('severe drift is blocked even when output is usable', async () => {
   });
   assert.equal(r.kind, 'blocked');
   assert.equal(r.reason, 'severe_drift');
+});
+
+test('a baseline cannot be frozen without a human approver', () => {
+  const state = { pending: { summary: 'x', hard: {}, soft: [], request: 'x' }, version: 0, baseline: null };
+  assert.throws(() => freezePending(state, { sessionId: 's' }, null, ''), /human approver/);
+  const baseline = freezePending(state, { sessionId: 's' }, null, '018');
+  assert.equal(baseline.confirmedBy, '018');
 });
 
 test('a question is answered directly and does not create a pending task', async () => {
