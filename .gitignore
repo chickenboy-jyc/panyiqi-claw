@@ -1,0 +1,5 @@
+node_modules/
+.tiger-state/
+coverage/
+*.log
+.DS_Store

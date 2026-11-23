@@ -1,0 +1,23 @@
+{
+  "name": "panyiqi-claw-agent",
+  "version": "0.1.0",
+  "description": "Open-source agent kernel extracted from 潘一琪 CLAW: Tiger three-wheel execution and the gate toolkit behind it.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test",
+    "demo": "node src/tiger/demo.js",
+    "gates": "node src/gates/runner.mjs examples/chain.txt"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "llm",
+    "pro-do-check",
+    "gates",
+    "reliability"
+  ]
+}

@@ -1,0 +1,4 @@
+# One gate per line. Blank lines and # comments are ignored.
+# The chain runner treats exit 99 as "incomplete reading", not "pass".
+node src/gates/selftest.mjs
+node src/gates/scan-orphans.mjs
