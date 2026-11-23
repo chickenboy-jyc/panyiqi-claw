@@ -42,7 +42,8 @@ Pro（唯一对用户说话）
 Pro 把可核验的约束写成 `hard`，把风格偏好写成 `soft`；用户确认后，Do 和 Check 都只读这份快照。
 Do 想偷偷加功能，Check 能对照 `hard.forbidden` 抓出来；Check 想放水，机器门禁已经先把能机器判的判了。
 
-详细设计见 [docs/tiger.md](docs/tiger.md)。
+详细设计见 [docs/tiger.md](docs/tiger.md)；
+这份代码从哪些文件抽出来、为什么不是整仓开源，见 [docs/origin.md](docs/origin.md)。
 
 ## 为什么门禁要单独做
 
