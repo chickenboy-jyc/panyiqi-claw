@@ -24,13 +24,21 @@ export function statePath(stateDir, payload) {
 }
 
 export function emptyState() {
-  return { pending: null, baseline: null, version: 0, updatedAt: new Date().toISOString() };
+  return {
+    pending: null,
+    baseline: null,
+    history: [],
+    version: 0,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function loadState(stateDir, payload) {
   try {
     const raw = fs.readFileSync(statePath(stateDir, payload), 'utf8');
-    return Object.assign(emptyState(), JSON.parse(raw));
+    const state = Object.assign(emptyState(), JSON.parse(raw));
+    if (!Array.isArray(state.history)) state.history = [];
+    return state;
   } catch {
     return emptyState();
   }
@@ -65,6 +73,12 @@ export function freezePending(state, payload, versionId, confirmedBy) {
   if (!pending) throw new Error('no pending proposal to freeze');
   const approver = String(confirmedBy || '').trim();
   if (!approver) throw new Error('baseline requires a human approver');
+  if (!Array.isArray(state.history)) state.history = [];
+  if (state.baseline) {
+    state.history.push(state.baseline);
+    // Keep the last 20 frozen versions; the current baseline is separate.
+    while (state.history.length > 20) state.history.shift();
+  }
   state.version = (Number(state.version) || 0) + 1;
   state.baseline = {
     versionId: versionId || makeVersionId(state, payload),

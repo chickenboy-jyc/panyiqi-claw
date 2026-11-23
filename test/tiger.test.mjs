@@ -86,6 +86,7 @@ test('incomplete Do output is blocked before drift diffing', async () => {
     messages: [{ role: 'user', content: '可以' }],
     sessionId: 's3',
     stateDir: dir,
+    userId: '018',
     model,
     runDo: async () => '只写了一半',
   });
@@ -108,11 +109,175 @@ test('severe drift is blocked even when output is usable', async () => {
     messages: [{ role: 'user', content: '确认' }],
     sessionId: 's4',
     stateDir: dir,
+    userId: '018',
     model,
     runDo: async () => '偷偷装了 axios',
   });
   assert.equal(r.kind, 'blocked');
   assert.equal(r.reason, 'severe_drift');
+});
+
+test('Check shape drift is blocked, not delivered', async () => {
+  for (const raw of ['{}', JSON.stringify({ complete: true }), JSON.stringify({ complete: true, severe: '偷偷加了依赖' })]) {
+    const dir = stateDir();
+    const model = async ({ role }) => (role === 'pro' ? proJson('propose') : raw);
+    await runTigerTurn({
+      messages: [{ role: 'user', content: '写一个工具' }],
+      sessionId: 'shape',
+      stateDir: dir,
+      model,
+      runDo: async () => 'draft',
+    });
+    const r = await runTigerTurn({
+      messages: [{ role: 'user', content: '可以' }],
+      sessionId: 'shape',
+      stateDir: dir,
+      userId: '018',
+      model,
+      runDo: async () => 'done',
+    });
+    assert.equal(r.kind, 'blocked', raw);
+    assert.equal(r.reason, 'check_invalid_shape', raw);
+    assert.ok(Array.isArray(r.issues) && r.issues.length > 0, raw);
+  }
+});
+
+test('machine gate shape drift is blocked', async () => {
+  const dir = stateDir();
+  const model = async ({ role }) => (role === 'pro' ? proJson('propose') : checkJson('ok'));
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '写一个工具' }],
+    sessionId: 'mg',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const r = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'mg',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => 'done',
+    machineGate: async () => ({}),
+  });
+  assert.equal(r.kind, 'blocked');
+  assert.equal(r.reason, 'machine_gate_invalid');
+});
+
+test('complete=false wins over a failing machine gate', async () => {
+  const dir = stateDir();
+  const model = async ({ role }) => (role === 'pro' ? proJson('propose') : checkJson('incomplete'));
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '写一个工具' }],
+    sessionId: 'order',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const r = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'order',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => '只写了一半',
+    machineGate: async () => ({ ok: false, failures: ['also bad'] }),
+  });
+  assert.equal(r.reason, 'incomplete');
+});
+
+test('artifacts reach machineGate, Check, and the result', async () => {
+  const dir = stateDir();
+  let checkPrompt = '';
+  let seen = null;
+  const artifacts = [{ path: 'out.txt', bytes: 12 }];
+  const model = async ({ role, user }) => {
+    if (role === 'pro') return proJson('propose');
+    checkPrompt = user;
+    return checkJson('ok');
+  };
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '写一个工具' }],
+    sessionId: 'art',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const r = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'art',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => ({ text: 'done', artifacts }),
+    machineGate: async ({ artifacts: got }) => {
+      seen = got;
+      return { ok: true, summary: 'artifacts present' };
+    },
+  });
+  assert.deepEqual(seen, artifacts);
+  assert.deepEqual(r.artifacts, artifacts);
+  assert.match(checkPrompt, /out\.txt/);
+});
+
+test('the previous baseline is retained in history', async () => {
+  const dir = stateDir();
+  const model = async ({ role }) => (role === 'pro' ? proJson('propose') : checkJson('ok'));
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '写一个工具' }],
+    sessionId: 'hist',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const first = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'hist',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => 'v1 done',
+  });
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '再写一个工具' }],
+    sessionId: 'hist',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const second = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'hist',
+    stateDir: dir,
+    userId: '018',
+    model,
+    runDo: async () => 'v2 done',
+  });
+  assert.equal(second.state.history.length, 1);
+  assert.equal(second.state.history[0].versionId, first.baseline.versionId);
+});
+
+test('confirmation without a human userId is rejected and keeps pending', async () => {
+  const dir = stateDir();
+  const model = async ({ role }) => (role === 'pro' ? proJson('propose') : checkJson('ok'));
+  await runTigerTurn({
+    messages: [{ role: 'user', content: '写一个工具' }],
+    sessionId: 'no-user',
+    stateDir: dir,
+    model,
+    runDo: async () => 'draft',
+  });
+  const r = await runTigerTurn({
+    messages: [{ role: 'user', content: '可以' }],
+    sessionId: 'no-user',
+    stateDir: dir,
+    model,
+    runDo: async () => { throw new Error('Must not run without human confirmation'); },
+  });
+  assert.equal(r.kind, 'error');
+  assert.match(r.error, /human userId/);
+  assert.ok(r.state.pending);
 });
 
 test('a baseline cannot be frozen without a human approver', () => {

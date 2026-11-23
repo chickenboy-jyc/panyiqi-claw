@@ -64,3 +64,31 @@ test('watchdog leaves a completed gate at its own exit code', () => {
   const r = spawnSync(process.execPath, [good], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 });
+
+test('markDone() alone is not evidence: no summary line => 99', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-test-'));
+  const wd = pathToFileURL(path.resolve('src/gates/watchdog.mjs')).href;
+  const bad = path.join(tmp, 'mark-only.mjs');
+  fs.writeFileSync(bad, [
+    `import { installWatchdog } from '${wd}';`,
+    "const wd = installWatchdog('MARK SUMMARY');",
+    'wd.markDone();',
+    'process.exit(0);',
+  ].join('\n'), 'utf8');
+  const r = spawnSync(process.execPath, [bad], { encoding: 'utf8' });
+  assert.equal(r.status, 99, r.stderr);
+});
+
+test('the summary line alone is evidence: no markDone() => 0', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-test-'));
+  const wd = pathToFileURL(path.resolve('src/gates/watchdog.mjs')).href;
+  const good = path.join(tmp, 'summary-only.mjs');
+  fs.writeFileSync(good, [
+    `import { installWatchdog } from '${wd}';`,
+    "installWatchdog('ONLY SUMMARY');",
+    "console.log('ONLY SUMMARY 通过 1 / 失败 0');",
+    // deliberately no markDone()
+  ].join('\n'), 'utf8');
+  const r = spawnSync(process.execPath, [good], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+});

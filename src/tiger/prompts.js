@@ -77,10 +77,12 @@ export function buildDoPrompt(baseline, userText, plan) {
   ].join('\n');
 }
 
-export function buildCheckPrompt(baseline, doText, machineSummary, draftsText) {
+export function buildCheckPrompt(baseline, doText, machineSummary, draftsText, artifacts) {
+  const list = Array.isArray(artifacts) ? artifacts : [];
   return [
     '【Frozen baseline】\n' + JSON.stringify(baseline, null, 2).slice(0, 8000),
     '\n【Machine gate summary (already decided; do not overturn failed items)】\n' + String(machineSummary || '(no machine gate)').slice(0, 4000),
+    '\n【Artifacts reported by Do (paths / metadata)】\n' + (list.length ? JSON.stringify(list).slice(0, 4000) : '(none)'),
     '\n【Actual Do output】\n' + String(draftsText || doText || '(empty)').slice(0, 16000),
     '\nFirst decide complete. Then diff against hard/soft. Do not re-check items the machine gate already failed. Return strict JSON only.',
   ].join('\n');

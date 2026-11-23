@@ -69,21 +69,63 @@ function asArray(v) {
   return Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : [];
 }
 
-function decide(check, machine) {
-  const completeIssues = asArray(check && check.completeIssues);
-  const severe = asArray(check && check.severe);
-  const minor = asArray(check && check.minor);
-  const machineOk = !machine || machine.ok !== false;
-  if (!machineOk) {
-    return { kind: 'blocked', status: 'blocked', reason: 'machine_gate', issues: asArray(machine && machine.failures) };
+function isRecord(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Fail closed: a drifted Check shape is a block, not a delivery. */
+function checkShapeIssues(check) {
+  if (!isRecord(check)) return ['Check output must be an object'];
+  const issues = [];
+  if (typeof check.complete !== 'boolean') issues.push('check.complete must be boolean');
+  // Required arrays, not "optional if absent": a missing `severe` is exactly
+  // the shape drift that used to turn a drift into a delivery.
+  for (const key of ['completeIssues', 'severe', 'minor']) {
+    if (!Array.isArray(check[key])) issues.push(`check.${key} must be an array`);
   }
-  if (check && check.complete === false) {
-    return { kind: 'blocked', status: 'blocked', reason: 'incomplete', issues: completeIssues };
+  if (check.notes != null && typeof check.notes !== 'string') issues.push('check.notes must be a string');
+  return issues;
+}
+
+function machineShapeIssues(machine) {
+  if (!isRecord(machine)) return ['machine gate must return an object'];
+  if (typeof machine.ok !== 'boolean') return ['machine.ok must be boolean'];
+  if (machine.summary != null && typeof machine.summary !== 'string') return ['machine.summary must be a string'];
+  if (machine.failures != null && !Array.isArray(machine.failures)) return ['machine.failures must be an array'];
+  return [];
+}
+
+function decide(check, machine) {
+  const shape = checkShapeIssues(check);
+  if (shape.length) {
+    return { kind: 'blocked', status: 'blocked', reason: 'check_invalid_shape', issues: shape };
+  }
+  const completeIssues = asArray(check.completeIssues);
+  const severe = asArray(check.severe);
+  const minor = asArray(check.minor);
+
+  // The document says "complete first": an incomplete output is blocked before
+  // the machine gate is allowed to interpret it.
+  if (check.complete === false) {
+    return {
+      kind: 'blocked',
+      status: 'blocked',
+      reason: 'incomplete',
+      issues: completeIssues.length ? completeIssues : ['Check marked incomplete without details'],
+    };
+  }
+
+  const machineShape = machineShapeIssues(machine);
+  if (machineShape.length) {
+    return { kind: 'blocked', status: 'blocked', reason: 'machine_gate_invalid', issues: machineShape };
+  }
+  if (machine.ok === false) {
+    return { kind: 'blocked', status: 'blocked', reason: 'machine_gate', issues: asArray(machine.failures) };
   }
   if (severe.length) {
     return { kind: 'blocked', status: 'blocked', reason: 'severe_drift', issues: severe };
   }
-  return { kind: 'delivered', status: 'delivered', minor, notes: String((check && check.notes) || '') };
+  return { kind: 'delivered', status: 'delivered', minor, notes: String(check.notes || '') };
 }
 
 /**
@@ -96,8 +138,8 @@ function decide(check, machine) {
  * @param {string} [opts.stateDir]
  * @param {string} [opts.assistantName]
  * @param {(args:{role:string,system:string,user:string})=>Promise<string>} opts.model
- * @param {(args:{baseline:object,request:string,prompt:string})=>Promise<string|{text:string}>} opts.runDo
- * @param {(args:{baseline:object,output:string})=>Promise<{ok:boolean,summary?:string,failures?:string[]}>} [opts.machineGate]
+ * @param {(args:{baseline:object,request:string,prompt:string})=>Promise<string|{text:string,artifacts?:any[]}>} opts.runDo
+ * @param {(args:{baseline:object,output:string,artifacts:any[]})=>Promise<{ok:boolean,summary?:string,failures?:string[]}>} [opts.machineGate]
  * @param {string} [opts.externalText]
  * @param {boolean} [opts.reset]
  */
@@ -122,8 +164,17 @@ export async function runTigerTurn(opts) {
   // Do this before calling Pro: otherwise Pro may re-propose on "可以".
   if (state.pending && CONFIRM_RE.test(userText)) {
     // Only an explicit human confirmation can freeze. Pro never freezes its
-    // own proposal; Do never starts from a pending item.
-    const baseline = freezePending(state, payload, undefined, o.userId || 'user');
+    // own proposal; Do never starts from a pending item. No userId = no
+    // confirmation: a literal "user" default would make confirmedBy a lie.
+    const approver = String(o.userId || '').trim();
+    if (!approver) {
+      return {
+        kind: 'error',
+        error: 'confirmation requires a human userId',
+        state,
+      };
+    }
+    const baseline = freezePending(state, payload, undefined, approver);
     saveState(stateDir, payload, state);
     return executeBaseline({ o, state, stateDir, payload, baseline, name });
   }
@@ -159,13 +210,40 @@ export async function runTigerTurn(opts) {
 async function executeBaseline({ o, state, stateDir, payload, baseline, name }) {
   const request = String(baseline.request || '').trim();
   let doText = '';
+  let artifacts = [];
   try {
     const result = await o.runDo({
       baseline,
       request,
       prompt: buildDoPrompt(baseline, request, o.plan),
     });
-    doText = typeof result === 'string' ? result : String((result && result.text) || '');
+    if (typeof result === 'string') {
+      doText = result;
+    } else if (isRecord(result)) {
+      doText = String(result.text || '');
+      if ('artifacts' in result) {
+        if (!Array.isArray(result.artifacts)) {
+          return {
+            kind: 'blocked',
+            status: 'blocked',
+            reason: 'do_invalid_artifacts',
+            issues: ['runDo().artifacts must be an array'],
+            baseline,
+            state,
+          };
+        }
+        artifacts = result.artifacts;
+      }
+    } else if (result != null) {
+      return {
+        kind: 'blocked',
+        status: 'blocked',
+        reason: 'do_invalid_result',
+        issues: ['runDo() must return a string or { text, artifacts }'],
+        baseline,
+        state,
+      };
+    }
   } catch (e) {
     return {
       kind: 'blocked',
@@ -176,10 +254,23 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
     };
   }
 
+  // No text and no artifact means there is nothing to verify. Do not let a
+  // friendly Check turn "nothing happened" into a delivery.
+  if (!doText.trim() && artifacts.length === 0) {
+    return {
+      kind: 'blocked',
+      status: 'blocked',
+      reason: 'do_empty',
+      issues: ['Do returned neither text nor artifacts'],
+      baseline,
+      state,
+    };
+  }
+
   let machine = { ok: true, summary: 'no machine gate' };
   if (typeof o.machineGate === 'function') {
     try {
-      machine = await o.machineGate({ baseline, output: doText });
+      machine = await o.machineGate({ baseline, output: doText, artifacts });
     } catch (e) {
       machine = { ok: false, failures: ['machine gate threw: ' + String((e && e.message) || e)] };
     }
@@ -188,7 +279,7 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
   const checkRaw = await o.model({
     role: 'check',
     system: checkSystem(name),
-    user: buildCheckPrompt(baseline, doText, machine.summary || '', doText),
+    user: buildCheckPrompt(baseline, doText, machine.summary || '', doText, artifacts),
   });
   const check = parseJsonLoose(checkRaw);
   if (!check) {
@@ -199,6 +290,7 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
       raw: String(checkRaw || ''),
       baseline,
       doText,
+      artifacts,
       machine,
       state,
     };
@@ -206,5 +298,5 @@ async function executeBaseline({ o, state, stateDir, payload, baseline, name }) 
 
   const decision = decide(check, machine);
   saveState(stateDir, payload, state);
-  return Object.assign({ baseline, doText, machine, check, state }, decision);
+  return Object.assign({ baseline, doText, artifacts, machine, check, state }, decision);
 }

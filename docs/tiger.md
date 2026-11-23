@@ -67,10 +67,14 @@ Check：检查做没做对（核验权）
     "request": "用户原话"
   },
   "baseline": null,
+  "history": [],
   "version": 0,
   "updatedAt": "..."
 }
 ```
+
+新版本冻结时，旧 `baseline` 会被推进 `history`（最多保留 20 个），
+所以“旧版本留档”不是文档承诺，而是实际状态：`state.history[n].versionId` 可以追。
 
 转移：
 
@@ -135,7 +139,11 @@ Check 只能看到：
 
 - 冻结基准；
 - 机器门禁汇总（已判定的 fail 不再复核）；
-- Do 的产物文本/草稿。
+- Do 的产物文本/草稿；
+- Do 返回的 `artifacts` 清单（路径 / 元数据，不吞掉）。
+
+`artifacts` 不是装饰：机器门禁要拿它做文件存在性、编译产物、依赖清单这类硬判据；
+Check 也要看到它，否则只能验“Do 的自述”，验不了“Do 到底产出了什么”。
 
 Check 的输出是严格 JSON：
 
@@ -149,12 +157,22 @@ Check 的输出是严格 JSON：
 }
 ```
 
-判定顺序：
+判定顺序（fail-closed）：
 
+0. **先校验形状**：`check` 必须是对象，`complete` 必须是 boolean，
+   `completeIssues / severe / minor` **必须都是数组**（缺一个就是形状漂移），
+   `notes` 如果出现必须是字符串；任何一条不满足 → `blocked / check_invalid_shape`，
+   **不进入后面的判定**；
 1. `complete === false` → `blocked / incomplete`，**不做漂移差分**；
-2. 机器门禁 `ok === false` → `blocked / machine_gate`；
-3. `severe.length > 0` → `blocked / severe_drift`；
-4. 否则 → `delivered`，`minor` 作为备注。
+2. 机器门禁形状非法 → `blocked / machine_gate_invalid`；
+3. 机器门禁 `ok === false` → `blocked / machine_gate`；
+4. `severe.length > 0` → `blocked / severe_drift`；
+5. 否则 → `delivered`，`minor` 作为备注。
+
+形状校验是为了防“模型输出漂移”：
+`{}`、`{"complete":true,"severe":"偷偷加了依赖"}` 这类输出，
+在旧实现里会被当成“没有 severe 数组 ⇒ 没漂移 ⇒ 交付”，
+现在一律按 `check_invalid_shape` 阻断。**没按契约输出，就是没给出可信读数。**
 
 ## 7. 失败矩阵
 
@@ -162,11 +180,16 @@ Check 的输出是严格 JSON：
 |---|---|---|
 | Pro 返回非法 JSON | `error` | 调用方重试/换模型 |
 | 用户没确认就催“做吧” | 仍是 `proposal` | Pro 再要一次确认 |
+| 确认时没有人类 `userId` | `error`，保留 `pending` | 调用方补登录身份 |
 | Do 抛异常 | `blocked / do_failed` | Do 执行器 |
+| Do 返回空文本且无 artifacts | `blocked / do_empty` | Do 执行器 |
+| Do 的 artifacts 不是数组 | `blocked / do_invalid_artifacts` | Do 执行器 |
 | Do 只写一半 | `blocked / incomplete` | Check 第一层 |
 | Do 偷偷加依赖 | `blocked / severe_drift` | Check 对照 `hard.forbidden` |
+| 机器门禁形状非法 | `blocked / machine_gate_invalid` | 机器门禁 |
 | 机器门禁不过 | `blocked / machine_gate` | 机器门禁 |
 | Check 返回非法 JSON | `blocked / check_invalid_json` | 调用方重试/换模型 |
+| Check 形状漂移（`{}` / `severe` 是字符串） | `blocked / check_invalid_shape` | 调用方重试/换模型 |
 
 ## 8. 什么时候不要用
 

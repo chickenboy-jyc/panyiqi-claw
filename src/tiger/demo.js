@@ -53,6 +53,7 @@ async function turn(label, messages, runDo, sessionId) {
     messages,
     sessionId,
     stateDir,
+    userId: 'demo-user',
     assistantName: '潘一琪',
     model: fakeModel,
     runDo,

@@ -22,13 +22,26 @@
 import { installWatchdog } from './watchdog.mjs';
 
 const wd = installWatchdog('UNIT-XXX SUMMARY'); // 必须最先装
-// ... 跑检查、打印汇总 ...
-wd.markDone();
+// ... 跑检查 ...
+console.log(`UNIT-XXX SUMMARY 通过 ${pass} / 失败 ${fail}`); // 汇总行必须真的打出来
+wd.markDone(); // 可选：它只表示“我认为自己跑完了”，不是证据
 process.exit(failed ? 1 : 0);
 ```
 
 看门狗覆盖四种真正能决定退出码的时机：显式 `process.exit`、`beforeExit`、`uncaughtException`、`unhandledRejection`。
-只在 `process.on('exit')` 里改 `exitCode` 是没用的：那时退出码已经定了。
+只看 `process.on('exit')` 里改 `exitCode` 没用：那时退出码已经定了。
+
+**证据是 stdout 上的汇总行，不是 `markDone()`。** 两个方向都要能判：
+
+| 实际发生 | 期望 |
+|---|---|
+| 调了 `markDone()`，但没打汇总行 | `99`（没有证据） |
+| 打了汇总行，但没调 `markDone()` | `0`（汇总行就是证据） |
+| 汇总行 + `markDone()`，业务全过 | `0` |
+| 汇总行 + `markDone()`，业务有失败 | `1` |
+| 什么都没打 | `99` |
+
+只信 `markDone()` 的版本会制造两种假读数：调用方忘了打汇总行却退出 0；以及打了汇总行却因为没调 `markDone()` 被误判 99。
 
 ## 2. 门禁链
 
