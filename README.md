@@ -1,5 +1,11 @@
 # 潘一琪 CLAW · Agent Kernel
 
+> **一句话定位**：三负重轮 + 门禁链的可运行内核——把“能不能动手、算不算完成”从提示词搬进确定性代码。
+> **当前状态**：可运行 · `npm test` 35/35 · `npm run gates` 4/4 · Node 20/22 CI · 零依赖 · MIT。
+> **先看哪个**：先跑 `npm test && npm run demo && npm run gates`，再读 [`docs/tiger.md`](docs/tiger.md) / [`docs/gates.md`](docs/gates.md)。
+> **三仓关系**：阅读链是 `agent-intent-gate`（最小判据）→ **本仓**（可运行内核）→ `douya-claw`（产品快照）；血缘是 `douya-claw` → 私有潘一琪 → 本仓，`agent-intent-gate` 是**兄弟**，不是父子。
+> **已知边界**：`artifactCustody` / `runtimeEvidence` / `evidenceQuality` 未完整移植；证据链只到 `artifacts` + `acceptance`，意图门已补回。见 [`docs/origin.md`](docs/origin.md)。
+
 这是从 **潘一琪 CLAW** 里抽出来的 agent 内核，开源三层：
 
 1. **虎式交错三负重轮**：Pro / Flash-Do / Flash-Check 三个轮子怎么分工、怎么冻结基准、怎么阻断漂移；
