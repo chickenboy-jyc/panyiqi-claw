@@ -1,7 +1,7 @@
 {
   "name": "panyiqi-claw-agent",
   "version": "0.1.0",
-  "description": "Open-source agent kernel extracted from 潘一琪 CLAW: Tiger three-wheel execution and the gate toolkit behind it.",
+  "description": "Lower the barrier to agents: Tiger three-wheel execution + gates, for people who only know how to chat with an LLM.",
   "type": "module",
   "private": false,
   "license": "MIT",
